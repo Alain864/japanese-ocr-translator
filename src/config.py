@@ -22,7 +22,8 @@ class Config:
     
     # OCR Configuration
     TESSERACT_LANG = os.getenv('TESSERACT_LANG', 'jpn')
-    OCR_CONFIDENCE_THRESHOLD = float(os.getenv('OCR_CONFIDENCE_THRESHOLD', '0.5'))
+    # Lower threshold for manga/comic images (default 0.3 instead of 0.5)
+    OCR_CONFIDENCE_THRESHOLD = float(os.getenv('OCR_CONFIDENCE_THRESHOLD', '0.3'))
     
     # Processing Configuration
     MAX_IMAGE_SIZE = int(os.getenv('MAX_IMAGE_SIZE', '4096'))

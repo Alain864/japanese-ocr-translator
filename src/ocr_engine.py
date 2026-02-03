@@ -1,17 +1,19 @@
-"""OCR engine module using Tesseract for Japanese text extraction."""
+"""OCR engine module using Tesseract for Japanese text extraction with manga support."""
 
 import logging
-from typing import Dict
+from typing import Dict, List
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+import cv2
+import numpy as np
 
-from .config import Config
+from src.config import Config
 
 logger = logging.getLogger(__name__)
 
 
 class OCREngine:
-    """Tesseract OCR wrapper for Japanese text extraction."""
+    """Tesseract OCR wrapper for Japanese text extraction with manga support."""
     
     def __init__(self, lang: str = None):
         """Initialize OCR engine."""
@@ -39,57 +41,161 @@ class OCREngine:
         except Exception as e:
             logger.warning(f"Could not verify language support: {e}")
     
+    def _preprocess_for_manga(self, image: Image.Image) -> Image.Image:
+        """
+        Advanced preprocessing for manga/comic images.
+        
+        Handles:
+        - Binarization for black/white manga
+        - Noise removal (screentones)
+        - Contrast enhancement
+        """
+        # Convert PIL to OpenCV format
+        img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+        
+        # Apply bilateral filter to reduce noise while preserving edges
+        denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+        
+        # Adaptive thresholding for better text extraction
+        # This handles varying brightness across the image
+        binary = cv2.adaptiveThreshold(
+            denoised, 255, 
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 
+            11, 2
+        )
+        
+        # Morphological operations to clean up
+        kernel = np.ones((2, 2), np.uint8)
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        
+        # Convert back to PIL
+        result = Image.fromarray(cleaned)
+        
+        return result
+    
     def extract_text(self, image: Image.Image) -> Dict[str, any]:
-        """Extract text from an image using OCR."""
+        """Extract text from an image using OCR with multiple strategies."""
+        
+        best_result = {'text': '', 'confidence': 0.0, 'has_text': False}
+        
+        # Strategy 1: Try with manga preprocessing and vertical text
         try:
-            # Get detailed OCR data
-            data = pytesseract.image_to_data(
-                image,
+            processed = self._preprocess_for_manga(image)
+            
+            # PSM 5: Single vertical block (for manga)
+            config_vertical = r'--psm 5 --oem 3'
+            
+            text_vertical = pytesseract.image_to_string(
+                processed,
                 lang=self.lang,
-                output_type=pytesseract.Output.DICT
-            )
+                config=config_vertical
+            ).strip()
             
-            # Extract text and calculate average confidence
-            texts = []
-            confidences = []
-            
-            for i, conf in enumerate(data['conf']):
-                if conf != -1:
-                    text = data['text'][i].strip()
-                    if text:
-                        texts.append(text)
-                        confidences.append(float(conf))
-            
-            full_text = ' '.join(texts)
-            avg_confidence = (
-                sum(confidences) / len(confidences) 
-                if confidences else 0.0
-            )
-            
-            normalized_confidence = avg_confidence / 100.0
-            
-            result = {
-                'text': full_text,
-                'confidence': normalized_confidence,
-                'has_text': bool(full_text and 
-                               normalized_confidence >= Config.OCR_CONFIDENCE_THRESHOLD)
-            }
-            
-            if result['has_text']:
-                logger.info(
-                    f"Extracted {len(full_text)} characters "
-                    f"with {normalized_confidence:.2%} confidence"
+            if text_vertical:
+                # Get confidence
+                data = pytesseract.image_to_data(
+                    processed,
+                    lang=self.lang,
+                    config=config_vertical,
+                    output_type=pytesseract.Output.DICT
                 )
-            else:
-                logger.info("No text detected or confidence too low")
-            
-            return result
-            
+                
+                confidences = [float(c) for c in data['conf'] if c != -1]
+                avg_conf = sum(confidences) / len(confidences) if confidences else 0
+                
+                logger.info(f"Strategy 1 (vertical): {len(text_vertical)} chars, {avg_conf:.1f}% confidence")
+                
+                if avg_conf > best_result['confidence'] * 100:
+                    best_result = {
+                        'text': text_vertical,
+                        'confidence': avg_conf / 100.0,
+                        'has_text': True
+                    }
         except Exception as e:
-            logger.error(f"OCR extraction failed: {e}")
-            return {
-                'text': '',
-                'confidence': 0.0,
-                'has_text': False,
-                'error': str(e)
-            }
+            logger.warning(f"Strategy 1 failed: {e}")
+        
+        # Strategy 2: Try with sparse text detection
+        try:
+            processed = self._preprocess_for_manga(image)
+            
+            # PSM 11: Sparse text
+            config_sparse = r'--psm 11 --oem 3'
+            
+            text_sparse = pytesseract.image_to_string(
+                processed,
+                lang=self.lang,
+                config=config_sparse
+            ).strip()
+            
+            if text_sparse:
+                data = pytesseract.image_to_data(
+                    processed,
+                    lang=self.lang,
+                    config=config_sparse,
+                    output_type=pytesseract.Output.DICT
+                )
+                
+                confidences = [float(c) for c in data['conf'] if c != -1]
+                avg_conf = sum(confidences) / len(confidences) if confidences else 0
+                
+                logger.info(f"Strategy 2 (sparse): {len(text_sparse)} chars, {avg_conf:.1f}% confidence")
+                
+                if avg_conf > best_result['confidence'] * 100:
+                    best_result = {
+                        'text': text_sparse,
+                        'confidence': avg_conf / 100.0,
+                        'has_text': True
+                    }
+        except Exception as e:
+            logger.warning(f"Strategy 2 failed: {e}")
+        
+        # Strategy 3: Standard horizontal text
+        try:
+            processed = self._preprocess_for_manga(image)
+            
+            # PSM 6: Uniform block of text
+            config_standard = r'--psm 6 --oem 3'
+            
+            text_standard = pytesseract.image_to_string(
+                processed,
+                lang=self.lang,
+                config=config_standard
+            ).strip()
+            
+            if text_standard:
+                data = pytesseract.image_to_data(
+                    processed,
+                    lang=self.lang,
+                    config=config_standard,
+                    output_type=pytesseract.Output.DICT
+                )
+                
+                confidences = [float(c) for c in data['conf'] if c != -1]
+                avg_conf = sum(confidences) / len(confidences) if confidences else 0
+                
+                logger.info(f"Strategy 3 (standard): {len(text_standard)} chars, {avg_conf:.1f}% confidence")
+                
+                if avg_conf > best_result['confidence'] * 100:
+                    best_result = {
+                        'text': text_standard,
+                        'confidence': avg_conf / 100.0,
+                        'has_text': True
+                    }
+        except Exception as e:
+            logger.warning(f"Strategy 3 failed: {e}")
+        
+        # Check if we got meaningful results
+        if best_result['confidence'] < Config.OCR_CONFIDENCE_THRESHOLD:
+            best_result['has_text'] = False
+            logger.info(f"Best result below threshold: {best_result['confidence']:.2%}")
+        elif best_result['text']:
+            logger.info(f"✓ Extracted {len(best_result['text'])} characters with {best_result['confidence']:.2%} confidence")
+        else:
+            best_result['has_text'] = False
+            logger.info("No text detected")
+        
+        return best_result

@@ -8,12 +8,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from tqdm import tqdm
 
-from .config import Config
-from .pdf_processor import PDFProcessor
-from .ocr_engine import OCREngine
-from .translator import Translator
+from src.config import Config
+from src.pdf_processor import PDFProcessor
+from src.ocr_engine import OCREngine
+from src.translator import Translator
 
 
 logging.basicConfig(
