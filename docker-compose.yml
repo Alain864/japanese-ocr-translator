@@ -3,26 +3,12 @@ version: "3.8"
 services:
   japanese-ocr:
     build: .
-    container_name: japanese-ocr-pipeline
+    container_name: japanese-ocr-translator
 
-    # ── secrets ─────────────────────────────────
-    # Reads OPENAI_API_KEY (and any other vars) from the local .env file.
-    # The .env is NEVER copied into the image.
     env_file:
       - .env
 
-    # ── runtime volumes ─────────────────────────
-    # input/  → drop PDFs here before running
-    # output/ → JSON results land here after the run
-    # logs/   → one log file per run
     volumes:
       - ./input:/app/input
       - ./output:/app/output
       - ./logs:/app/logs
-
-    # ── resource guard (optional) ───────────────
-    # Uncomment if you want to cap memory on the host.
-    # deploy:
-    #   resources:
-    #     limits:
-    #       memory: 2G

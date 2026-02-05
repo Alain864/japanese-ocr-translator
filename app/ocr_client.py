@@ -1,11 +1,12 @@
 """
 ocr_client.py
 ─────────────────────────────────────────────
-All OpenAI Vision API interactions live here.
-  • Encodes a PIL Image → base64.
-  • Sends it to GPT-4o with the extraction + translation prompt.
-  • Parses the JSON response (with retries).
-  • Returns a clean dict — knows nothing about PDFs or files.
+All OpenAI Vision API interactions.
+Sends images to GPT-4o and returns:
+  - Japanese text
+  - English translation
+  - Bounding box (normalized coordinates)
+  - Font styling (bold, italic)
 """
 
 import base64
@@ -27,71 +28,95 @@ from app.logger import get_logger
 
 log = get_logger("ocr_client")
 
-# ── Prompt sent as the system message ────────
+# ── System prompt for unified extraction ────
 _SYSTEM_PROMPT = """You are a specialist OCR and translation assistant focused on Japanese text.
 
 Your task for each image:
-1. Carefully scan the ENTIRE image for any Japanese text (kanji, hiragana, katakana, or a mix).
-2. Extract every piece of Japanese text exactly as it appears, preserving the original characters.
-3. Translate each extracted piece into English.
+1. Carefully scan the ENTIRE image for any Japanese text (kanji, hiragana, katakana, or mixed).
+2. For each piece of Japanese text found, extract:
+   - The exact Japanese text as it appears
+   - English translation
+   - Bounding box location (normalized coordinates)
+   - Font styling (bold, italic)
 
 IMPORTANT RULES:
-- If there is NO Japanese text in the image, respond with exactly: {"japanese_found": false}
-- If Japanese text IS found, respond ONLY with valid JSON in this exact format:
+- If there is NO Japanese text in the image, respond with: {"japanese_found": false}
+- If Japanese text IS found, respond ONLY with valid JSON in this EXACT format:
 
 {
   "japanese_found": true,
   "extractions": [
     {
-      "japanese_text": "<original Japanese text exactly as it appears>",
+      "japanese_text": "<original Japanese text>",
       "english_translation": "<English translation>",
-      "location_description": "<brief description of where in the image this text appears>"
+      "bounding_box": {
+        "x": <normalized x coordinate 0.0-1.0>,
+        "y": <normalized y coordinate 0.0-1.0>,
+        "width": <normalized width 0.0-1.0>,
+        "height": <normalized height 0.0-1.0>
+      },
+      "styling": {
+        "bold": <true or false>,
+        "italic": <true or false>
+      }
     }
   ]
 }
 
-- Do NOT include any text outside the JSON object.
-- Do NOT wrap the JSON in markdown code blocks.
-- Each distinct block or segment of Japanese text should be its own entry in the array.
-- Be thorough: do not skip small labels, watermarks, or partial text.
+BOUNDING BOX FORMAT:
+- Use normalized coordinates (0.0 to 1.0) where:
+  - (x, y) = top-left corner of the text region
+  - width, height = size of the text region
+  - Example: x=0.5 means 50% from the left edge of the image
+- The bounding box should tightly contain the text with minimal padding
+
+STYLING DETECTION:
+- Set "bold": true if the text appears in bold/heavy weight
+- Set "italic": true if the text appears slanted/italicized
+- If unsure, default to false
+
+OUTPUT REQUIREMENTS:
+- Do NOT include any text outside the JSON object
+- Do NOT wrap the JSON in markdown code blocks or backticks
+- Each distinct block or segment of Japanese text should be a separate entry
+- Be thorough: include all Japanese text, even small labels or watermarks
 """
 
 
 class OCRClient:
-    """Thin wrapper around the OpenAI client scoped to our vision task."""
+    """Wrapper around OpenAI client for vision-based OCR + translation."""
 
     def __init__(self) -> None:
-        if not OPENAI_API_KEY:
+        if not OPENAI_API_KEY or OPENAI_API_KEY == "your-openai-api-key-here":
             raise ValueError(
                 "OPENAI_API_KEY is not set. "
-                "Add it to your .env file or environment."
+                "Add it to your .env file."
             )
         self._client = OpenAI(api_key=OPENAI_API_KEY)
 
-    # ── public ──────────────────────────────────
     def extract_japanese(self, image: Image.Image, label: str = "") -> Dict:
         """
-        Send *image* to GPT-4o and return the parsed extraction dict.
+        Send image to GPT-4o and return parsed extraction dict.
 
         Parameters
         ----------
         image : PIL.Image.Image
             The page image to analyse.
         label : str, optional
-            Human-readable label used in log messages (e.g. "doc.pdf p3/12").
+            Human-readable label for logging (e.g. "doc.pdf p3/12").
 
         Returns
         -------
         dict
-            Parsed JSON from the model.  Always contains at least
-            ``japanese_found`` (bool).  On hard failure an ``error`` key is
-            added instead.
+            Parsed JSON from the model. Always contains "japanese_found" (bool).
+            On success also contains "extractions" list.
+            On failure contains "error" key.
         """
         b64 = self._encode(image)
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                log.info(f"  [{label}] API call … (attempt {attempt}/{MAX_RETRIES})")
+                log.info(f"  [{label}] API call... (attempt {attempt}/{MAX_RETRIES})")
                 response = self._client.chat.completions.create(
                     model=MODEL,
                     messages=[
@@ -108,7 +133,7 @@ class OCRClient:
                                 },
                                 {
                                     "type": "text",
-                                    "text": "Extract and translate any Japanese text in this image.",
+                                    "text": "Extract and translate all Japanese text in this image, including bounding boxes and styling.",
                                 },
                             ],
                         },
@@ -123,7 +148,10 @@ class OCRClient:
             except json.JSONDecodeError:
                 log.warning(f"  [{label}] JSON parse error on attempt {attempt}")
                 if attempt == MAX_RETRIES:
-                    return {"japanese_found": False, "error": "JSON parse failed after all retries"}
+                    return {
+                        "japanese_found": False,
+                        "error": "JSON parse failed after all retries"
+                    }
 
             except Exception as exc:
                 log.warning(f"  [{label}] API error on attempt {attempt}: {exc}")
@@ -132,20 +160,18 @@ class OCRClient:
 
             time.sleep(RETRY_DELAY_SECONDS)
 
-        # Should not reach here, but safety net
         return {"japanese_found": False, "error": "Max retries exhausted"}
 
-    # ── private ─────────────────────────────────
     @staticmethod
     def _encode(image: Image.Image) -> str:
-        """PIL Image → base64 PNG string."""
+        """Convert PIL Image to base64 PNG string."""
         buf = BytesIO()
         image.save(buf, format="PNG")
         return base64.b64encode(buf.getvalue()).decode("utf-8")
 
     @staticmethod
     def _parse(raw: str, label: str) -> Dict:
-        """Strip any accidental markdown fences and parse JSON."""
+        """Strip markdown fences and parse JSON."""
         cleaned = raw.strip().strip("```").strip("json").strip()
         try:
             return json.loads(cleaned)

@@ -1,8 +1,7 @@
 """
 pdf_converter.py
 ─────────────────────────────────────────────
-Responsible for one thing: convert a PDF file into a list of PIL Images.
-Uses pdf2image (backed by Poppler's pdftoppm).
+Converts PDF files to PIL Images using pdf2image (Poppler).
 """
 
 from pathlib import Path
@@ -19,24 +18,29 @@ log = get_logger("pdf_converter")
 
 def pdf_to_images(pdf_path: Path) -> List[Image.Image]:
     """
-    Rasterise every page of *pdf_path* at the configured DPI.
+    Rasterise every page of a PDF at the configured DPI.
+
+    Parameters
+    ----------
+    pdf_path : Path
+        Path to the PDF file.
 
     Returns
     -------
     list[PIL.Image.Image]
-        One image per page, in page order.
+        One image per page, in order.
 
     Raises
     ------
     FileNotFoundError
-        If *pdf_path* does not exist.
+        If PDF doesn't exist.
     RuntimeError
-        If Poppler / pdftoppm fails for any reason.
+        If conversion fails.
     """
     if not pdf_path.is_file():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    log.info(f"Converting '{pdf_path.name}' → images at {DPI} DPI …")
+    log.info(f"Converting '{pdf_path.name}' to images at {DPI} DPI...")
 
     try:
         images: List[Image.Image] = convert_from_path(
