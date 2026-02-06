@@ -28,6 +28,11 @@ ENGLISH_FONT:            str  = os.environ.get("ENGLISH_FONT",            "Arial
 FALLBACK_FONT:           str  = os.environ.get("FALLBACK_FONT",           "DejaVuSans.ttf")
 BBOX_PADDING:            int  = int(os.environ.get("BBOX_PADDING",        "5"))
 MIN_FONT_SIZE:           int  = int(os.environ.get("MIN_FONT_SIZE",       "8"))
+TEXT_INSET:              int  = int(os.environ.get("TEXT_INSET",          "2"))
+LINE_SPACING:            float = float(os.environ.get("LINE_SPACING",     "1.1"))
+TEXT_ERASE_PADDING:      int  = int(os.environ.get("TEXT_ERASE_PADDING",  "6"))
+TEXT_ERASE_THRESHOLD:    int  = int(os.environ.get("TEXT_ERASE_THRESHOLD","190"))
+TEXT_ERASE_DILATE:       int  = int(os.environ.get("TEXT_ERASE_DILATE",   "3"))
 
 # Parse background fill color (RGB tuple)
 _bg_color_str = os.environ.get("BACKGROUND_FILL_COLOR", "255,255,255")

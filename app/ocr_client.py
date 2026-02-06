@@ -37,6 +37,7 @@ Your task for each image:
    - The exact Japanese text as it appears
    - English translation
    - Bounding box location (normalized coordinates)
+   - Speech bubble box containing the text (if inside a bubble)
    - Font styling (bold, italic)
 
 IMPORTANT RULES:
@@ -50,6 +51,12 @@ IMPORTANT RULES:
       "japanese_text": "<original Japanese text>",
       "english_translation": "<English translation>",
       "bounding_box": {
+        "x": <normalized x coordinate 0.0-1.0>,
+        "y": <normalized y coordinate 0.0-1.0>,
+        "width": <normalized width 0.0-1.0>,
+        "height": <normalized height 0.0-1.0>
+      },
+      "bubble_box": {
         "x": <normalized x coordinate 0.0-1.0>,
         "y": <normalized y coordinate 0.0-1.0>,
         "width": <normalized width 0.0-1.0>,
@@ -69,6 +76,8 @@ BOUNDING BOX FORMAT:
   - width, height = size of the text region
   - Example: x=0.5 means 50% from the left edge of the image
 - The bounding box should tightly contain the text with minimal padding
+- If the text is inside a speech bubble, include "bubble_box" that tightly covers the bubble interior
+- If no bubble is present, omit "bubble_box"
 
 STYLING DETECTION:
 - Set "bold": true if the text appears in bold/heavy weight

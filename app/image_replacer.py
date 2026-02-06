@@ -7,12 +7,17 @@ Uses bounding box coordinates and styling info from OCR results.
 
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 from config.settings import (
     BACKGROUND_FILL_COLOR,
     BBOX_PADDING,
     MIN_FONT_SIZE,
+    TEXT_INSET,
+    LINE_SPACING,
+    TEXT_ERASE_PADDING,
+    TEXT_ERASE_THRESHOLD,
+    TEXT_ERASE_DILATE,
     ENGLISH_FONT,
     FALLBACK_FONT,
 )
@@ -77,6 +82,7 @@ class ImageReplacer:
                 japanese = extraction.get("japanese_text", "")
                 english = extraction.get("english_translation", "")
                 bbox_norm = extraction.get("bounding_box", {})
+                bubble_norm = extraction.get("bubble_box") or extraction.get("speech_bubble_box")
                 styling = extraction.get("styling", {})
 
                 if not bbox_norm or not english:
@@ -87,20 +93,31 @@ class ImageReplacer:
                     continue
 
                 # Convert normalized coords to pixels
-                bbox_px = self._normalize_to_pixels(bbox_norm, img_width, img_height)
-                if not bbox_px:
+                text_bbox_px = self._normalize_to_pixels(
+                    bbox_norm, img_width, img_height, pad=True, pad_px=TEXT_ERASE_PADDING
+                )
+                if not text_bbox_px:
                     log.warning(
                         f"  [{page_label}] Extraction {i}: invalid bounding box, skipping"
                     )
                     fail_count += 1
                     continue
 
-                # Draw background rectangle
-                self._draw_background(draw, bbox_px)
+                # Erase original text more aggressively inside its bbox
+                self._erase_text(img, text_bbox_px)
+
+                # Use bubble box for placement if available
+                place_bbox_px = None
+                if bubble_norm:
+                    place_bbox_px = self._normalize_to_pixels(
+                        bubble_norm, img_width, img_height, pad=False
+                    )
+                if not place_bbox_px:
+                    place_bbox_px = text_bbox_px
 
                 # Render English text
                 success = self._render_text(
-                    draw, english, bbox_px, styling, page_label, i
+                    draw, english, place_bbox_px, styling, page_label, i
                 )
 
                 if success:
@@ -124,7 +141,12 @@ class ImageReplacer:
         return img, success_count, fail_count
 
     def _normalize_to_pixels(
-        self, bbox_norm: Dict, img_width: int, img_height: int
+        self,
+        bbox_norm: Dict,
+        img_width: int,
+        img_height: int,
+        pad: bool = True,
+        pad_px: Optional[int] = None,
     ) -> Optional[Tuple[int, int, int, int]]:
         """
         Convert normalized bounding box (0-1) to pixel coordinates.
@@ -150,20 +172,40 @@ class ImageReplacer:
             x2 = int((x + w) * img_width)
             y2 = int((y + h) * img_height)
 
-            # Add padding
-            x1 = max(0, x1 - BBOX_PADDING)
-            y1 = max(0, y1 - BBOX_PADDING)
-            x2 = min(img_width, x2 + BBOX_PADDING)
-            y2 = min(img_height, y2 + BBOX_PADDING)
+            if pad:
+                if pad_px is not None:
+                    pad_val = max(0, int(pad_px))
+                else:
+                    pad_val = min(
+                        BBOX_PADDING, int(w * img_width * 0.15), int(h * img_height * 0.15)
+                    )
+                x1 = max(0, x1 - pad_val)
+                y1 = max(0, y1 - pad_val)
+                x2 = min(img_width, x2 + pad_val)
+                y2 = min(img_height, y2 + pad_val)
 
             return (x1, y1, x2, y2)
 
         except (ValueError, TypeError):
             return None
 
-    def _draw_background(self, draw: ImageDraw.Draw, bbox: Tuple[int, int, int, int]):
-        """Draw a filled rectangle to cover original text."""
-        draw.rectangle(bbox, fill=BACKGROUND_FILL_COLOR)
+    def _erase_text(self, img: Image.Image, bbox: Tuple[int, int, int, int]):
+        """Erase dark text pixels inside bbox using a mask-based fill."""
+        x1, y1, x2, y2 = bbox
+        if x2 <= x1 or y2 <= y1:
+            return
+
+        crop = img.crop((x1, y1, x2, y2))
+        gray = crop.convert("L")
+
+        # Mask: select dark pixels (likely text strokes)
+        mask = gray.point(lambda p: 255 if p < TEXT_ERASE_THRESHOLD else 0)
+        if TEXT_ERASE_DILATE > 1:
+            # Expand mask to cover anti-aliased edges
+            mask = mask.filter(ImageFilter.MaxFilter(TEXT_ERASE_DILATE))
+
+        fill = Image.new("RGB", crop.size, BACKGROUND_FILL_COLOR)
+        img.paste(fill, (x1, y1), mask)
 
     def _render_text(
         self,
@@ -194,37 +236,28 @@ class ImageReplacer:
         is_bold = styling.get("bold", False)
         is_italic = styling.get("italic", False)
 
-        # Calculate initial font size based on box height
-        # Start with 80% of box height as a reasonable default for single line
-        initial_size = int(box_height * 0.8)
-        font_size = max(initial_size, MIN_FONT_SIZE)
+        # Apply inset to keep text off the edges
+        inset = max(0, TEXT_INSET)
+        x1_in = min(x2, x1 + inset)
+        y1_in = min(y2, y1 + inset)
+        x2_in = max(x1_in, x2 - inset)
+        y2_in = max(y1_in, y2 - inset)
+        inner_width = max(1, x2_in - x1_in)
+        inner_height = max(1, y2_in - y1_in)
 
-        # Try to load font with styling
-        font = self._load_font(font_size, is_bold, is_italic)
+        # Find the largest font size that fits both width and height
+        font_size, font, wrapped_lines, line_height, total_text_height = self._fit_text(
+            text, inner_width, inner_height, draw, is_bold, is_italic
+        )
 
-        # Wrap text to fit in box width
-        wrapped_lines = self._wrap_text(text, font, box_width, draw)
-        
-        # Calculate total height needed for all lines
-        line_height = self._get_line_height(font, draw)
-        total_text_height = len(wrapped_lines) * line_height
-        
-        # If wrapped text is too tall, reduce font size and re-wrap
-        while total_text_height > box_height and font_size > MIN_FONT_SIZE:
-            font_size -= 2  # Reduce by 2 for faster convergence
-            font = self._load_font(font_size, is_bold, is_italic)
-            wrapped_lines = self._wrap_text(text, font, box_width, draw)
-            line_height = self._get_line_height(font, draw)
-            total_text_height = len(wrapped_lines) * line_height
-
-        if total_text_height > box_height:
+        if total_text_height > inner_height:
             log.warning(
                 f"  [{page_label}] Extraction {extraction_num}: "
                 f"text still too tall after wrapping (may be truncated visually)"
             )
 
         # Calculate starting Y position to center the text block vertically
-        y_start = y1 + (box_height - total_text_height) // 2
+        y_start = y1_in + (inner_height - total_text_height) // 2
 
         # Draw each line centered horizontally
         try:
@@ -235,7 +268,7 @@ class ImageReplacer:
                 line_width = bbox_result[2] - bbox_result[0]
                 
                 # Center horizontally
-                x_pos = x1 + (box_width - line_width) // 2
+                x_pos = x1_in + (inner_width - line_width) // 2
                 
                 # Draw the line
                 draw.text((x_pos, current_y), line, fill=(0, 0, 0), font=font)
@@ -331,15 +364,63 @@ class ImageReplacer:
             Line height in pixels.
         """
         try:
-            # Measure a sample text with ascenders and descenders
-            bbox = draw.textbbox((0, 0), "Ayg", font=font)
-            return bbox[3] - bbox[1]
+            ascent, descent = font.getmetrics()
+            return int((ascent + descent) * LINE_SPACING)
         except Exception:
             # Fallback: estimate based on font size
             try:
-                return font.size
+                return int(font.size * LINE_SPACING)
             except Exception:
                 return 12  # Default fallback
+
+    def _fit_text(
+        self,
+        text: str,
+        max_width: int,
+        max_height: int,
+        draw: ImageDraw.Draw,
+        bold: bool,
+        italic: bool,
+    ) -> Tuple[int, ImageFont.FreeTypeFont, List[str], int, int]:
+        """
+        Binary search for the largest font size that fits within max_width/max_height.
+        Returns font size, font, wrapped lines, line height, total text height.
+        """
+        low = MIN_FONT_SIZE
+        high = max(MIN_FONT_SIZE, int(max_height * 0.95))
+
+        best_size = MIN_FONT_SIZE
+        best_font = self._load_font(best_size, bold, italic)
+        best_lines = self._wrap_text(text, best_font, max_width, draw)
+        best_line_height = self._get_line_height(best_font, draw)
+        best_total_height = len(best_lines) * best_line_height
+
+        while low <= high:
+            mid = (low + high) // 2
+            font = self._load_font(mid, bold, italic)
+            lines = self._wrap_text(text, font, max_width, draw)
+            line_height = self._get_line_height(font, draw)
+            total_height = len(lines) * line_height
+
+            # Check width
+            fits_width = True
+            for line in lines:
+                bbox = draw.textbbox((0, 0), line, font=font)
+                if (bbox[2] - bbox[0]) > max_width:
+                    fits_width = False
+                    break
+
+            if fits_width and total_height <= max_height:
+                best_size = mid
+                best_font = font
+                best_lines = lines
+                best_line_height = line_height
+                best_total_height = total_height
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        return best_size, best_font, best_lines, best_line_height, best_total_height
 
     def _load_font(self, size: int, bold: bool, italic: bool) -> ImageFont.FreeTypeFont:
         """
