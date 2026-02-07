@@ -18,6 +18,9 @@ from config.settings import (
     TEXT_ERASE_PADDING,
     TEXT_ERASE_THRESHOLD,
     TEXT_ERASE_DILATE,
+    BUBBLE_DETECT_THRESHOLD,
+    BUBBLE_PADDING,
+    BUBBLE_MIN_AREA,
     ENGLISH_FONT,
     FALLBACK_FONT,
 )
@@ -103,12 +106,21 @@ class ImageReplacer:
                     fail_count += 1
                     continue
 
-                # Erase original text more aggressively inside its bbox
-                self._erase_text(img, text_bbox_px)
+                # Detect speech bubble region from the image itself
+                detected_bubble = self._detect_bubble_region(img, text_bbox_px)
+
+                # Erase original text more aggressively
+                if detected_bubble:
+                    bubble_bbox_px, bubble_mask, bubble_crop_box = detected_bubble
+                    self._erase_bubble(img, bubble_mask, bubble_crop_box)
+                else:
+                    self._erase_text(img, text_bbox_px)
 
                 # Use bubble box for placement if available
                 place_bbox_px = None
-                if bubble_norm:
+                if detected_bubble:
+                    place_bbox_px = detected_bubble[0]
+                elif bubble_norm:
                     place_bbox_px = self._normalize_to_pixels(
                         bubble_norm, img_width, img_height, pad=False
                     )
@@ -206,6 +218,93 @@ class ImageReplacer:
 
         fill = Image.new("RGB", crop.size, BACKGROUND_FILL_COLOR)
         img.paste(fill, (x1, y1), mask)
+
+    def _erase_bubble(
+        self,
+        img: Image.Image,
+        bubble_mask: Image.Image,
+        bubble_crop_box: Tuple[int, int, int, int],
+    ):
+        """Erase the entire speech bubble interior using its mask."""
+        fill = Image.new("RGB", bubble_mask.size, BACKGROUND_FILL_COLOR)
+        img.paste(fill, bubble_crop_box, bubble_mask)
+
+    def _detect_bubble_region(
+        self, img: Image.Image, text_bbox: Tuple[int, int, int, int]
+    ) -> Optional[Tuple[Tuple[int, int, int, int], Image.Image, Tuple[int, int, int, int]]]:
+        """
+        Detect the speech bubble interior by flood-filling white regions.
+        Returns (bubble_bbox, bubble_mask, bubble_crop_box) or None.
+        """
+        x1, y1, x2, y2 = text_bbox
+        w = x2 - x1
+        h = y2 - y1
+        if w <= 0 or h <= 0:
+            return None
+
+        # Expand search area around the text
+        pad = int(max(w, h) * 0.8)
+        crop_x1 = max(0, x1 - pad)
+        crop_y1 = max(0, y1 - pad)
+        crop_x2 = min(img.width, x2 + pad)
+        crop_y2 = min(img.height, y2 + pad)
+        crop_box = (crop_x1, crop_y1, crop_x2, crop_y2)
+
+        crop = img.crop(crop_box)
+        gray = crop.convert("L")
+
+        # Threshold to isolate white bubble interiors
+        thresh = max(0, min(255, BUBBLE_DETECT_THRESHOLD))
+        binary = gray.point(lambda p: 255 if p >= thresh else 0)
+
+        # Seed point: center of the text box within the crop
+        seed_x = max(0, min(crop.width - 1, x1 - crop_x1 + w // 2))
+        seed_y = max(0, min(crop.height - 1, y1 - crop_y1 + h // 2))
+
+        # If seed isn't in white area, try a few offsets
+        if binary.getpixel((seed_x, seed_y)) == 0:
+            found = False
+            for dx, dy in [(-5, 0), (5, 0), (0, -5), (0, 5), (-8, -8), (8, 8)]:
+                sx = max(0, min(crop.width - 1, seed_x + dx))
+                sy = max(0, min(crop.height - 1, seed_y + dy))
+                if binary.getpixel((sx, sy)) == 255:
+                    seed_x, seed_y = sx, sy
+                    found = True
+                    break
+            if not found:
+                return None
+
+        # Flood fill the white region
+        fill_value = 128
+        ImageDraw.floodfill(binary, (seed_x, seed_y), fill_value, thresh=0)
+
+        # Mask of filled region
+        mask = binary.point(lambda p: 255 if p == fill_value else 0)
+        bbox = mask.getbbox()
+        if not bbox:
+            return None
+
+        mx1, my1, mx2, my2 = bbox
+        if (mx2 - mx1) * (my2 - my1) < BUBBLE_MIN_AREA:
+            return None
+
+        # Add small padding inside the bubble bounds
+        pad_in = max(0, BUBBLE_PADDING)
+        mx1 = max(0, mx1 + pad_in)
+        my1 = max(0, my1 + pad_in)
+        mx2 = min(crop.width, mx2 - pad_in)
+        my2 = min(crop.height, my2 - pad_in)
+
+        bubble_bbox = (
+            crop_x1 + mx1,
+            crop_y1 + my1,
+            crop_x1 + mx2,
+            crop_y1 + my2,
+        )
+        bubble_mask = mask.crop((mx1, my1, mx2, my2))
+        bubble_crop_box = (crop_x1 + mx1, crop_y1 + my1, crop_x1 + mx2, crop_y1 + my2)
+
+        return bubble_bbox, bubble_mask, bubble_crop_box
 
     def _render_text(
         self,
