@@ -37,3 +37,4 @@ Thumbs.db
 input/*.pdf
 output/
 logs/*.log
+temp.md

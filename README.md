@@ -405,3 +405,29 @@ This project uses:
 - pdf2image / Poppler (Apache/GPL)
 - Pillow (PIL Fork)
 - python-dotenv (BSD)
+
+## Running Specific pipelines
+Original
+Run the process using the existent image:
+1. docker compose up
+3. Run and automatically remove the container after:
+docker compose run --rm japanese-ocr
+4. Removes stopped containers created by compose:
+docker compose down
+5. Removes containers AND the built image:
+docker compose down --rmi all
+
+
+# Full pipeline
+docker compose run --rm japanese-ocr
+or explicitly:
+docker compose run --rm japanese-ocr --stage all
+# OCR only
+docker compose run --rm japanese-ocr --stage ocr
+# Text Replacement Only
+docker compose run --rm japanese-ocr --stage replace
+
+# Locally. (without Docker)
+python main.py --stage ocr
+python main.py --stage replace
+python main.py --stage all

@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   japanese-ocr:
     build: .
@@ -12,3 +10,7 @@ services:
       - ./input:/app/input
       - ./output:/app/output
       - ./logs:/app/logs
+
+    # Override with: docker compose run --rm japanese-ocr --stage ocr
+    # For text replacement only: docker compose run --rm japanese-ocr --stage replace
+    # For full pipeline (default): docker compose run --rm japanese-ocr

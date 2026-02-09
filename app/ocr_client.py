@@ -29,7 +29,7 @@ from app.logger import get_logger
 log = get_logger("ocr_client")
 
 # ── System prompt for unified extraction ────
-_SYSTEM_PROMPT = """You are a specialist OCR and translation assistant focused on Japanese text.
+_SYSTEM_PROMPT = """You are a specialist OCR and translation assistant focused on Japanese text in manga/comic images.
 
 Your task for each image:
 1. Carefully scan the ENTIRE image for any Japanese text (kanji, hiragana, katakana, or mixed).
@@ -72,8 +72,8 @@ IMPORTANT RULES:
 
 BOUNDING BOX FORMAT:
 - Use normalized coordinates (0.0 to 1.0) where:
-  - (x, y) = top-left corner of the text region
-  - width, height = size of the text region
+  - (x, y) = top-left corner of the region
+  - width, height = size of the region
   - Example: x=0.5 means 50% from the left edge of the image
 - The bounding box should tightly contain the text with minimal padding
 - If the text is inside a speech bubble, include "bubble_box" that tightly covers the bubble interior
@@ -89,6 +89,7 @@ OUTPUT REQUIREMENTS:
 - Do NOT wrap the JSON in markdown code blocks or backticks
 - Each distinct block or segment of Japanese text should be a separate entry
 - Be thorough: include all Japanese text, even small labels or watermarks
+- ALWAYS include both bounding_box and bubble_box for every extraction
 """
 
 
@@ -142,7 +143,7 @@ class OCRClient:
                                 },
                                 {
                                     "type": "text",
-                                    "text": "Extract and translate all Japanese text in this image, including bounding boxes and styling.",
+                                    "text": "Extract and translate all Japanese text in this image. CRITICAL: For each text, provide both a tight bounding_box AND a GENEROUSLY SIZED bubble_box that fully encompasses the speech bubble with extra margin. Make bubble_box at least 30-50% larger than bounding_box. When uncertain, err on the side of making boxes LARGER. Complete coverage is essential.",
                                 },
                             ],
                         },

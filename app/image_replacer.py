@@ -23,6 +23,7 @@ from config.settings import (
     BUBBLE_MIN_AREA,
     ENGLISH_FONT,
     FALLBACK_FONT,
+    TEXT_PADDING,
 )
 from app.logger import get_logger
 
@@ -127,7 +128,7 @@ class ImageReplacer:
                 if not place_bbox_px:
                     place_bbox_px = text_bbox_px
 
-                # Render English text
+                # Render English text (using bubble box for better positioning)
                 success = self._render_text(
                     draw, english, place_bbox_px, styling, page_label, i
                 )
@@ -163,11 +164,25 @@ class ImageReplacer:
         """
         Convert normalized bounding box (0-1) to pixel coordinates.
 
+        Parameters
+        ----------
+        bbox_norm : dict
+            Bounding box with normalized coordinates (0-1).
+        img_width : int
+            Image width in pixels.
+        img_height : int
+            Image height in pixels.
+        padding : int, optional
+            Padding to add around the box. If None, uses BBOX_PADDING from settings.
+
         Returns
         -------
         tuple[int, int, int, int] or None
             (x1, y1, x2, y2) pixel coordinates, or None if invalid.
         """
+        if padding is None:
+            padding = BBOX_PADDING
+
         try:
             x = float(bbox_norm.get("x", 0))
             y = float(bbox_norm.get("y", 0))
@@ -325,6 +340,13 @@ class ImageReplacer:
             True if successful, False otherwise.
         """
         x1, y1, x2, y2 = bbox
+
+        # Apply internal text padding for better spacing
+        x1 += TEXT_PADDING
+        y1 += TEXT_PADDING
+        x2 -= TEXT_PADDING
+        y2 -= TEXT_PADDING
+
         box_width = x2 - x1
         box_height = y2 - y1
 
@@ -352,7 +374,7 @@ class ImageReplacer:
         if total_text_height > inner_height:
             log.warning(
                 f"  [{page_label}] Extraction {extraction_num}: "
-                f"text still too tall after wrapping (may be truncated visually)"
+                f"text height {total_text_height}px exceeds box height {box_height}px (font size: {font_size}px)"
             )
 
         # Calculate starting Y position to center the text block vertically
@@ -361,18 +383,23 @@ class ImageReplacer:
         # Draw each line centered horizontally
         try:
             current_y = y_start
-            for line in wrapped_lines:
+            for idx, line in enumerate(wrapped_lines):
                 # Get line width for centering
                 bbox_result = draw.textbbox((0, 0), line, font=font)
                 line_width = bbox_result[2] - bbox_result[0]
-                
+
                 # Center horizontally
                 x_pos = x1_in + (inner_width - line_width) // 2
                 
                 # Draw the line
                 draw.text((x_pos, current_y), line, fill=(0, 0, 0), font=font)
-                current_y += line_height
-            
+
+                # Add line spacing (except after last line)
+                if idx < len(wrapped_lines) - 1:
+                    current_y += line_height + line_spacing
+                else:
+                    current_y += line_height
+
             return True
         except Exception as exc:
             log.error(
