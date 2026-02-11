@@ -4,6 +4,6 @@ pdf2image>=1.16.0,<2.0.0
 Pillow>=10.0.0,<11.0.0
 python-dotenv>=1.0.0,<2.0.0
 
-# OCR - Accurate text detection
-paddleocr>=2.7.0
-paddlepaddle>=2.5.0  # CPU version
+# OCR - Accurate text detection with EasyOCR
+easyocr>=1.6.0,<2.0.0
+numpy>=1.21.0

@@ -172,17 +172,16 @@ class ImageReplacer:
             Image width in pixels.
         img_height : int
             Image height in pixels.
-        padding : int, optional
-            Padding to add around the box. If None, uses BBOX_PADDING from settings.
+        pad : bool
+            Whether to add padding around the box.
+        pad_px : int, optional
+            Padding in pixels. If None and pad=True, uses BBOX_PADDING from settings.
 
         Returns
         -------
         tuple[int, int, int, int] or None
             (x1, y1, x2, y2) pixel coordinates, or None if invalid.
         """
-        if padding is None:
-            padding = BBOX_PADDING
-
         try:
             x = float(bbox_norm.get("x", 0))
             y = float(bbox_norm.get("y", 0))
@@ -370,6 +369,9 @@ class ImageReplacer:
         font_size, font, wrapped_lines, line_height, total_text_height = self._fit_text(
             text, inner_width, inner_height, draw, is_bold, is_italic
         )
+
+        # Line spacing between lines (in addition to font line height)
+        line_spacing = LINE_SPACING
 
         if total_text_height > inner_height:
             log.warning(

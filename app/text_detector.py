@@ -1,32 +1,33 @@
 """
 text_detector.py
 ─────────────────────────────────────────────
-Uses PaddleOCR for accurate Japanese text detection and bounding boxes.
+Uses EasyOCR for accurate Japanese text detection and bounding boxes.
 Provides pixel-perfect coordinate detection for manga text.
+EasyOCR uses HuggingFace models and avoids PaddleOCR framework issues.
 """
 
 from typing import List, Dict, Tuple
 from PIL import Image
 import numpy as np
 
-from paddleocr import PaddleOCR
+import easyocr
 from app.logger import get_logger
 
 log = get_logger("text_detector")
 
 
 class TextDetector:
-    """Accurate text detection using PaddleOCR."""
+    """Accurate text detection using EasyOCR."""
 
     def __init__(self):
-        """Initialize PaddleOCR with Japanese language support."""
-        log.info("Initializing PaddleOCR for Japanese text detection...")
+        """Initialize EasyOCR with Japanese language support."""
+        log.info("Initializing EasyOCR for Japanese text detection...")
 
-        # Initialize PaddleOCR with Japanese model
-        # use_angle_cls=True helps with rotated text
-        self.ocr = PaddleOCR(lang='japan', use_angle_cls=True)
+        # Initialize EasyOCR reader for Japanese
+        # Downloads HuggingFace models automatically on first use
+        self.reader = easyocr.Reader(['ja'], gpu=False)
 
-        log.info("PaddleOCR initialized successfully")
+        log.info("EasyOCR initialized successfully")
 
     def detect_text(self, image: Image.Image, label: str = "") -> List[Dict]:
         """
@@ -47,30 +48,29 @@ class TextDetector:
             - bounding_box: Normalized coordinates (0-1)
             - confidence: Detection confidence score
         """
-        log.info(f"  [{label}] Detecting Japanese text with PaddleOCR...")
+        log.info(f"  [{label}] Detecting Japanese text with EasyOCR...")
 
-        # Convert PIL Image to numpy array for PaddleOCR
+        # Convert PIL Image to numpy array for EasyOCR
         img_array = np.array(image)
         img_height, img_width = img_array.shape[:2]
 
         try:
-            # Run PaddleOCR detection + recognition
-            result = self.ocr.ocr(img_array)
+            # Run EasyOCR detection + recognition
+            # Returns: [[([x1,y1], [x2,y2], [x3,y3], [x4,y4]), text, confidence], ...]
+            result = self.reader.readtext(img_array, detail=1)
 
-            if not result or not result[0]:
+            if not result:
                 log.info(f"  [{label}] No Japanese text detected")
                 return []
 
             detections = []
 
             # Process each detected text region
-            for detection in result[0]:
-                # detection format: [bounding_box_points, (text, confidence)]
+            for detection in result:
+                # detection format: ([bounding_box_points], text, confidence)
                 bbox_points = detection[0]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-                text_info = detection[1]     # (text, confidence)
-
-                japanese_text = text_info[0]
-                confidence = float(text_info[1])
+                japanese_text = detection[1]
+                confidence = float(detection[2])
 
                 # Convert polygon points to normalized bounding box
                 bbox_norm = self._points_to_normalized_bbox(
@@ -87,7 +87,7 @@ class TextDetector:
             return detections
 
         except Exception as exc:
-            log.error(f"  [{label}] PaddleOCR detection failed: {exc}")
+            log.error(f"  [{label}] EasyOCR detection failed: {exc}")
             return []
 
     def _points_to_normalized_bbox(

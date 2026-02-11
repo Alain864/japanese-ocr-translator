@@ -93,13 +93,14 @@ def main() -> None:
 
     # ── Banner ──────────────────────────────────
     log.info("=" * 68)
-    log.info("  Japanese OCR & Translation Pipeline (Unified)")
+    log.info("  Japanese OCR & Translation Pipeline (Efficient)")
     log.info(f"  Stage: {stage.upper()}")
     log.info("=" * 68)
     log.info(f"  Input              : {INPUT_FOLDER}")
     log.info(f"  Output             : {OUTPUT_FOLDER}")
     if stage in ("ocr", "all"):
-        log.info(f"  Model              : {MODEL}")
+        log.info(f"  Detection          : EasyOCR (local, free)")
+        log.info(f"  Translation Model  : {MODEL}")
         log.info(f"  DPI                : {DPI}")
     if stage in ("replace", "all"):
         log.info(f"  Text Replacement   : {'Enabled' if ENABLE_TEXT_REPLACEMENT else 'Disabled'}")
@@ -115,13 +116,13 @@ def main() -> None:
         log.info(f"✅ Replacement completed in {elapsed}s")
         return
 
-    # ── Initialize services (PaddleOCR + GPT-4o) ──────────────────
-    log.info("\n🚀 Initializing pipeline (PaddleOCR for detection + GPT-4o for translation)...")
+    # ── Initialize services (EasyOCR + GPT-4o Translation) ──────────
+    log.info("\n🚀 Initializing pipeline (EasyOCR detection + GPT-4o translation)...")
     text_detector = TextDetector()
     translator = Translator()
     image_replacer = ImageReplacer() if ENABLE_TEXT_REPLACEMENT and stage in ("replace", "all") else None
 
-    # ── Run pipeline (Detection + Translation) ──────────────
+    # ── Run pipeline (Detection + Translation) ──────────────────
     # Process each PDF
     pdf_files = list(INPUT_FOLDER.glob("*.pdf"))
     log.info(f"Found {len(pdf_files)} PDF(s) in {INPUT_FOLDER}")
@@ -142,8 +143,9 @@ def main() -> None:
     extraction_output = {
         "metadata": {
             "generated_at": datetime.now().isoformat(),
-            "pipeline_version": "unified-v1",
-            "model": MODEL,
+            "pipeline_version": "efficient-v1",
+            "detection_method": "EasyOCR",
+            "translation_model": MODEL,
             "dpi": DPI,
             "text_replacement_enabled": ENABLE_TEXT_REPLACEMENT and stage in ("replace", "all"),
             "total_files_processed": len(results),
@@ -212,6 +214,7 @@ def main() -> None:
     log.info(f"  🇯🇵 Pages with Japanese: {total_japanese_pages}")
     if ENABLE_TEXT_REPLACEMENT and stage in ("all", "replace"):
         log.info(f"  ✏️  Text replacements : {total_replacements} successful, {total_failures} failed")
+    log.info(f"  🚀 Architecture     : EasyOCR (free) + {MODEL} (batch translation)")
     log.info("=" * 68)
 
 

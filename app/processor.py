@@ -30,6 +30,10 @@ def process_pdf(
 ) -> Tuple[Dict, List[Tuple[Image.Image, str]]]:
     """
     Full pipeline for a single PDF.
+    
+    ⚠️  DEPRECATED: Use process_pdf_accurate() instead.
+    This function uses GPT-4o Vision API which is slow and expensive.
+    process_pdf_accurate() uses local EasyOCR detection + batch translation.
 
     Parameters
     ----------
@@ -262,6 +266,9 @@ def process_all(
 ) -> Tuple[List[Dict], List[Tuple[Image.Image, str]]]:
     """
     Process all PDFs in input folder.
+    
+    ⚠️  DEPRECATED: This function is not used by main.py anymore.
+    Use the main() function directly, which now uses process_pdf_accurate().
 
     Returns
     -------
