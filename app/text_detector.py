@@ -25,9 +25,14 @@ class TextDetector:
 
         # Initialize EasyOCR reader for Japanese
         # Downloads HuggingFace models automatically on first use
-        self.reader = easyocr.Reader(['ja'], gpu=False)
-
-        log.info("EasyOCR initialized successfully")
+        # GPU will be used if available (CUDA/Metal), falls back to CPU if not
+        try:
+            self.reader = easyocr.Reader(['ja'], gpu=True)
+            log.info("EasyOCR initialized successfully (GPU enabled)")
+        except Exception as e:
+            log.warning(f"GPU initialization failed, falling back to CPU: {e}")
+            self.reader = easyocr.Reader(['ja'], gpu=False)
+            log.info("EasyOCR initialized successfully (CPU mode)")
 
     def detect_text(self, image: Image.Image, label: str = "") -> List[Dict]:
         """
