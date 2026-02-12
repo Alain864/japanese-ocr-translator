@@ -4,6 +4,5 @@ pdf2image>=1.16.0,<2.0.0
 Pillow>=10.0.0,<11.0.0
 python-dotenv>=1.0.0,<2.0.0
 
-# OCR - Accurate text detection with EasyOCR
-easyocr>=1.6.0,<2.0.0
-numpy>=1.21.0
+# OCR - Google Cloud Vision API for accurate text detection
+google-cloud-vision>=3.4.0,<4.0.0

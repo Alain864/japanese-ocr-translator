@@ -6,11 +6,12 @@
 
 ## What It Does
 
-### Stage 1: Accurate Text Detection (PaddleOCR)
+### Stage 1: Accurate Text Detection (Google Cloud Vision)
 - Converts PDF pages to high-resolution images
-- Uses **PaddleOCR** for pixel-perfect Japanese text detection
+- Uses **Google Cloud Vision API** for pixel-perfect Japanese text detection
 - Extracts: Japanese text + precise bounding box coordinates
 - Handles rotated text and complex layouts automatically
+- Highly accurate OCR with excellent Japanese language support
 
 ### Stage 2: Translation (GPT-4o Text API)
 - Takes detected Japanese text and translates to English
@@ -19,7 +20,7 @@
 - Includes retry logic with exponential backoff
 
 ### Stage 3: Text Replacement (Optional)
-- Uses bounding box coordinates from PaddleOCR to locate Japanese text
+- Uses bounding box coordinates from Google Cloud Vision to locate Japanese text
 - Covers original text with white rectangle
 - Renders English translation in the same location
 - Auto-shrinks font size if English text exceeds bounding box
@@ -45,7 +46,7 @@ japanese-ocr-translator/
 │   ├── __init__.py
 │   ├── logger.py              # Logging (console + file)
 │   ├── pdf_converter.py       # PDF → images
-│   ├── text_detector.py       # PaddleOCR - accurate Japanese text detection
+│   ├── text_detector.py       # Google Cloud Vision - accurate Japanese text detection
 │   ├── translator.py          # GPT-4o text API - Japanese to English
 │   ├── ocr_client.py          # OpenAI Vision API (legacy, for fallback)
 │   ├── image_replacer.py      # Text replacement logic
@@ -95,7 +96,7 @@ All other settings have sensible defaults, but you can customize:
 - `RETRY_DELAY_SECONDS=2` - Delay between retries
 - See `.env.example` for all options
 
-Note: **PaddleOCR** is local and requires no API key. It runs entirely on your machine for text detection.
+Note: **Google Cloud Vision** requires an API key. Set `GOOGLE_CLOUD_API_KEY` in your `.env` file.
 
 ### 2a. Run with Docker (Recommended)
 
@@ -159,15 +160,15 @@ python main.py --stage replace
 
 ### extractions.json
 
-The file contains complete OCR extraction data with precise bounding boxes from PaddleOCR:
+The file contains complete OCR extraction data with precise bounding boxes from Google Cloud Vision:
 
 ```json
 {
   "metadata": {
     "generated_at": "2026-02-11T10:30:00.123456",
-    "pipeline_version": "paddle-ocr-v2",
-    "ocr_engine": "paddleocr",
-    "translator_model": "gpt-4o",
+    "pipeline_version": "efficient-v1",
+    "detection_method": "Google Cloud Vision",
+    "translation_model": "gpt-4o",
     "dpi": 200,
     "text_replacement_enabled": true,
     "total_files_processed": 1,
@@ -212,11 +213,11 @@ The file contains complete OCR extraction data with precise bounding boxes from 
 
 ### Bounding Box Coordinates
 
-Coordinates are **normalized** (0.0 to 1.0), derived from PaddleOCR:
+Coordinates are **normalized** (0.0 to 1.0), derived from Google Cloud Vision:
 - `x`, `y` = top-left corner position (fraction of image width/height)
 - `width`, `height` = size of the text region
 - Example: `x=0.5` means 50% from the left edge
-- **Pixel-perfect accuracy** - PaddleOCR detects exact text location
+- **Pixel-perfect accuracy** - Google Cloud Vision detects exact text location
 
 The pipeline converts these to pixel coordinates based on actual image dimensions for text replacement.
 
@@ -230,9 +231,7 @@ The pipeline converts these to pixel coordinates based on actual image dimension
     "pages_with_japanese": 2,
     "total_replacements_successful": 3,
     "total_replacements_failed": 0,
-    "elapsed_seconds": 45.2,
-    "api_calls": 2,
-    "estimated_cost_usd": 0.08
+    "elapsed_seconds": 45.2
   },
   "files": [
     {
@@ -250,11 +249,11 @@ The pipeline converts these to pixel coordinates based on actual image dimension
 
 ### Three-Stage Pipeline
 
-1. **Text Detection** (`text_detector.py` - PaddleOCR)
+1. **Text Detection** (`text_detector.py` - Google Cloud Vision)
    - Converts PDF pages to images at configurable DPI
-   - Runs PaddleOCR locally for Japanese text detection
+   - Uses Google Cloud Vision API for Japanese text detection
    - Returns pixel-perfect bounding box coordinates
-   - **Zero API calls** - entirely local, no dependencies
+   - **High accuracy OCR** - excellent Japanese language support
 
 2. **Translation** (`translator.py` - GPT-4o Text API)
    - Takes detected Japanese text
@@ -263,16 +262,16 @@ The pipeline converts these to pixel coordinates based on actual image dimension
    - Includes retry logic with exponential backoff
 
 3. **Text Replacement** (`image_replacer.py`)
-   - Uses precise bounding boxes from PaddleOCR
+   - Uses precise bounding boxes from Google Cloud Vision
    - Draws white rectangle over original text
    - Renders English translation with auto-font-sizing
    - Minimum font size: 8px, shrinks until text fits
 
 ### Why This Approach?
 
-- **Accuracy**: PaddleOCR specializes in Japanese and gives pixel-perfect coordinates
-- **Cost**: Two separate APIs (OCR locally + text translation) is cheaper than Vision API per page
-- **Speed**: Parallel processing potential; text detection is local
+- **Accuracy**: Google Cloud Vision provides highly accurate OCR with excellent Japanese language support
+- **Cost**: Google Cloud Vision is cost-effective for OCR, combined with GPT-4o for translation
+- **Speed**: Cloud-based OCR with fast processing times
 - **Flexibility**: Run detection alone, or translation+replacement separately
 - **Quality**: Specialized models for each task vs. one generalist Vision model
 
@@ -291,14 +290,13 @@ All settings in `.env`:
 | `RETRY_DELAY_SECONDS` | `2` | Delay between retries |
 | **PDF Processing** |
 | `DPI` | `200` | PDF conversion resolution (higher = sharper) |
-| **Text Detection** |
-| `ENABLE_OCR` | `true` | Enable PaddleOCR text detection |
 | **Text Replacement** |
 | `ENABLE_TEXT_REPLACEMENT` | `true` | Enable/disable image modification |
 | `ENGLISH_FONT` | `Arial.ttf` | Font for English text |
 | `FALLBACK_FONT` | `DejaVuSans.ttf` | Fallback if primary not found |
 | `BACKGROUND_FILL_COLOR` | `255,255,255` | RGB color (white) |
 | `BBOX_PADDING` | `5` | Pixels of padding around text |
+| `RENDER_BOX_PADDING_PCT` | `0.35` | Extra expansion for render box (percentage of text/bubble size) |
 | `MIN_FONT_SIZE` | `8` | Minimum font size when auto-shrinking |
 | **Paths** |
 | `INPUT_FOLDER` | `./input` | Where to read PDFs |
@@ -309,8 +307,8 @@ All settings in `.env`:
 
 ## Error Handling
 
-### Detection Failures (PaddleOCR)
-- Runs locally with no API calls, very stable
+### Detection Failures (Google Cloud Vision)
+- Cloud-based API with high reliability
 - If detection fails → page marked "no Japanese found"
 - Failures don't block processing of other pages
 
@@ -382,16 +380,16 @@ docker compose logs
 - Increase `DPI` in `.env` (try 300 for higher quality detection)
 - Check input PDF image quality
 - Verify Japanese text is clear and readable in the original
-- PaddleOCR works best with clear, digital text
+- Google Cloud Vision works best with clear, digital text
 
 ---
 
 ## Notes
 
-- **API Costs**: Translation API usage only. Typical cost is $0.001-0.005 per page (GPT-4o text API is very cheap)
-- **Processing Speed**: ~2-5 seconds per page (detection is local, translation is API-dependent)
+- **API Costs**: Google Cloud Vision OCR (~$1.50 per 1000 images) + Translation API usage. Typical combined cost is ~$0.002-0.01 per page
+- **Processing Speed**: ~2-5 seconds per page (cloud-based detection + translation)
 - **Image Format**: Output images are PNG (lossless, preserves quality)
-- **No API Key Needed for OCR**: PaddleOCR runs entirely on your machine
+- **API Keys Required**: Google Cloud Vision API key for OCR, OpenAI API key for translation
 - **No PDF Output**: This version only outputs images. If you need PDFs, use a separate tool to combine the images.
 
 ---
@@ -429,7 +427,7 @@ output/
 
 ## Dependencies
 
-- **PaddleOCR** - Local text detection (no API needed)
+- **Google Cloud Vision** - Cloud-based OCR for text detection (requires API key)
 - **OpenAI API** - Translation (requires API key)
 - **pdf2image** - PDF conversion (requires system Poppler)
 - **Pillow** - Image manipulation

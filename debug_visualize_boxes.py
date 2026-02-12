@@ -1,17 +1,17 @@
 """
 debug_visualize_boxes.py
 ─────────────────────────────────────────────
-Visualizes bounding boxes and bubble boxes from extractions.json
-to debug coordinate accuracy from GPT-4o Vision.
+Visualizes bounding boxes from extractions.json
+to debug coordinate accuracy from Google Cloud Vision.
 
 Usage:
     python debug_visualize_boxes.py
 
 Output:
     Creates debug_output/ folder with annotated images showing:
-    - RED: bounding_box (tight text box)
-    - BLUE: bubble_box (speech bubble area)
-    - GREEN: background coverage area (bubble_box + padding)
+    - RED: bounding_box (tight text box from Google Cloud Vision)
+    - GREEN: background coverage area (what gets painted white)
+    - YELLOW: text placement area (where English goes)
 """
 
 import json
@@ -70,7 +70,7 @@ def draw_box(draw, bbox, color, width=3, label=None):
 
 def main():
     print("=" * 70)
-    print("DEBUG: Visualizing Bounding Boxes from GPT-4o Vision")
+    print("DEBUG: Visualizing Bounding Boxes from Google Cloud Vision")
     print("=" * 70)
     print()
 
@@ -171,8 +171,7 @@ def main():
     print(f"📂 Check output in: {DEBUG_OUTPUT}")
     print()
     print("Legend:")
-    print("  🔴 RED boxes    = bounding_box (tight text area from GPT-4o)")
-    print("  🔵 BLUE boxes   = bubble_box (speech bubble area from GPT-4o)")
+    print("  🔴 RED boxes    = bounding_box (tight text area from Google Cloud Vision)")
     print("  🟢 GREEN fill   = background coverage (what gets painted white)")
     print("  🟡 YELLOW boxes = text placement area (where English goes)")
     print("=" * 70)

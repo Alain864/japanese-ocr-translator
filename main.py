@@ -28,6 +28,7 @@ from config.settings import (
     EXTRACTIONS_FILENAME,
     REPORT_FILENAME,
     IMAGES_SUBFOLDER,
+    GOOGLE_CLOUD_API_KEY,
     OPENAI_API_KEY,
     MODEL,
     DPI,
@@ -45,6 +46,11 @@ log = get_logger("main")
 def _validate(stage: str) -> None:
     """Fail fast with clear error messages."""
     if stage in ("ocr", "all"):
+        if not GOOGLE_CLOUD_API_KEY or GOOGLE_CLOUD_API_KEY == "your-google-cloud-api-key-here":
+            raise SystemExit(
+                "❌ GOOGLE_CLOUD_API_KEY is not set.\n"
+                "   Add your Google Cloud API key to the .env file."
+            )
         if not OPENAI_API_KEY or OPENAI_API_KEY == "your-openai-api-key-here":
             raise SystemExit(
                 "❌ OPENAI_API_KEY is not set.\n"
@@ -99,7 +105,7 @@ def main() -> None:
     log.info(f"  Input              : {INPUT_FOLDER}")
     log.info(f"  Output             : {OUTPUT_FOLDER}")
     if stage in ("ocr", "all"):
-        log.info(f"  Detection          : EasyOCR (local, free)")
+        log.info(f"  Detection          : Google Cloud Vision API")
         log.info(f"  Translation Model  : {MODEL}")
         log.info(f"  DPI                : {DPI}")
     if stage in ("replace", "all"):
@@ -116,8 +122,8 @@ def main() -> None:
         log.info(f"✅ Replacement completed in {elapsed}s")
         return
 
-    # ── Initialize services (EasyOCR + GPT-4o Translation) ──────────
-    log.info("\n🚀 Initializing pipeline (EasyOCR detection + GPT-4o translation)...")
+    # ── Initialize services (Google Cloud Vision + GPT-4o Translation) ──────────
+    log.info("\n🚀 Initializing pipeline (Google Cloud Vision detection + GPT-4o translation)...")
     text_detector = TextDetector()
     translator = Translator()
     image_replacer = ImageReplacer() if ENABLE_TEXT_REPLACEMENT and stage in ("replace", "all") else None
@@ -144,7 +150,7 @@ def main() -> None:
         "metadata": {
             "generated_at": datetime.now().isoformat(),
             "pipeline_version": "efficient-v1",
-            "detection_method": "EasyOCR",
+            "detection_method": "Google Cloud Vision",
             "translation_model": MODEL,
             "dpi": DPI,
             "text_replacement_enabled": ENABLE_TEXT_REPLACEMENT and stage in ("replace", "all"),
@@ -214,7 +220,7 @@ def main() -> None:
     log.info(f"  🇯🇵 Pages with Japanese: {total_japanese_pages}")
     if ENABLE_TEXT_REPLACEMENT and stage in ("all", "replace"):
         log.info(f"  ✏️  Text replacements : {total_replacements} successful, {total_failures} failed")
-    log.info(f"  🚀 Architecture     : EasyOCR (free) + {MODEL} (batch translation)")
+    log.info(f"  🚀 Architecture     : Google Cloud Vision + {MODEL} (batch translation)")
     log.info("=" * 68)
 
 
