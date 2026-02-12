@@ -38,3 +38,5 @@ input/*.pdf
 output/
 logs/*.log
 temp.md
+debug_output/*.png
+debug_output/
