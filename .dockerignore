@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Runtime data — mounted as volumes at run-time, not baked into the image
+input/
+output/
+logs/
+
+# Docs (not needed at runtime)
+README.md
